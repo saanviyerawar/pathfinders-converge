@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import Image from 'next/image';
 import {
   Activity,
   AudioLines,
@@ -12,7 +11,6 @@ import {
   LoaderCircle,
   MapPin,
   Mic,
-  MoreHorizontal,
   Search,
   ShieldCheck,
   Square,
@@ -349,38 +347,40 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-[#f4f7f6] text-[#182625]">
       <div className="mx-auto flex min-h-screen max-w-[1720px]">
-        <aside className="hidden w-[124px] shrink-0 border-r border-[#dbe5e2] bg-[#0c3a38] text-white lg:flex lg:flex-col">
-          <div className="flex h-20 flex-col items-center justify-center gap-1.5 border-b border-white/10 px-2">
+        <aside className="hidden w-[62px] shrink-0 border-r border-[#dbe5e2] bg-[#0c3a38] text-white lg:flex lg:flex-col">
+          <div className="flex h-20 items-center justify-center border-b border-white/10">
             <div className="grid size-8 place-items-center rounded-lg bg-[#d8f26a] text-[#163b38] shadow-sm">
               <Waves className="size-4" strokeWidth={2.4} />
             </div>
-            <p className="text-[13px] font-semibold tracking-tight">Converge</p>
           </div>
 
           <nav className="space-y-2 px-2 py-5" aria-label="Primary navigation">
             <button
               type="button"
               onClick={() => setView('overview')}
-              className={`flex w-full flex-col items-center gap-1.5 rounded-lg px-2 py-3 text-center text-[11px] transition ${view === 'overview' ? 'bg-white/12 font-medium text-white' : 'text-white/62 hover:bg-white/7 hover:text-white'}`}
+              className={`grid size-[46px] place-items-center rounded-lg transition ${view === 'overview' ? 'bg-white/12 text-white' : 'text-white/62 hover:bg-white/7 hover:text-white'}`}
+              aria-label="Shift overview"
+              title="Shift overview"
             >
               <LayoutDashboard className="size-[18px]" />
-              Shift overview
+              <span className="sr-only">Shift overview</span>
             </button>
             <button
               type="button"
               onClick={() => setView('residents')}
-              className={`flex w-full flex-col items-center gap-1.5 rounded-lg px-2 py-3 text-center text-[11px] transition ${view === 'residents' ? 'bg-white/12 font-medium text-white' : 'text-white/62 hover:bg-white/7 hover:text-white'}`}
+              className={`grid size-[46px] place-items-center rounded-lg transition ${view === 'residents' ? 'bg-white/12 text-white' : 'text-white/62 hover:bg-white/7 hover:text-white'}`}
+              aria-label="Residents"
+              title="Residents"
             >
               <UsersRound className="size-[18px]" />
-              Residents
+              <span className="sr-only">Residents</span>
             </button>
           </nav>
 
-          <div className="mt-auto flex flex-col items-center gap-3 p-3">
-            <div className="grid size-9 place-items-center rounded-full bg-[#d8f26a] text-xs font-bold text-[#163b38]">
+          <div className="mt-auto flex flex-col items-center gap-3 p-2 pb-4">
+            <div className="grid size-8 place-items-center rounded-full bg-[#d8f26a] text-[10px] font-bold text-[#163b38]">
               JB
             </div>
-            <MoreHorizontal className="size-4 text-white/40" />
           </div>
         </aside>
 
@@ -426,7 +426,7 @@ export default function Home() {
                     <h1 className="font-heading text-2xl font-semibold tracking-[-0.025em] sm:text-[30px]">
                       Residents
                     </h1>
-                    <p className="mt-1 text-sm text-[#667875]">
+                    <p className="mt-1 font-sans text-sm text-[#667875]">
                       Seven residents currently included in this demonstration
                       facility.
                     </p>
@@ -436,37 +436,39 @@ export default function Home() {
                   </div>
                 </div>
 
-                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                   {RESIDENTS.map((resident) => (
                     <article
                       key={resident.id}
-                      className="overflow-hidden rounded-2xl border border-[#d9e4e1] bg-white shadow-[0_12px_30px_rgba(20,55,51,0.045)]"
+                      className="flex items-center gap-3 rounded-xl border border-[#d9e4e1] bg-white p-3 shadow-[0_8px_22px_rgba(20,55,51,0.04)]"
                     >
-                      <Image
-                        src={resident.photo}
-                        alt={`Fictional profile portrait of ${resident.name}`}
-                        width={640}
-                        height={640}
-                        className="aspect-[4/3] w-full object-cover object-center"
-                      />
-                      <div className="p-4">
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <h2 className="text-base font-semibold tracking-tight text-[#203633]">
+                      <Avatar className="size-16 shrink-0">
+                        <AvatarImage
+                          src={resident.photo}
+                          alt={`Fictional profile portrait of ${resident.name}`}
+                        />
+                        <AvatarFallback>
+                          {resident.name.slice(0, 2)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <h2 className="truncate text-sm font-semibold tracking-tight text-[#203633]">
                               {resident.name}
                             </h2>
-                            <p className="mt-0.5 text-xs text-[#73837f]">
-                              Preferred name: {resident.preferredName}
+                            <p className="mt-0.5 truncate font-sans text-[11px] text-[#73837f]">
+                              {resident.wing}
                             </p>
                           </div>
-                          <span className="rounded-lg bg-[#eaf4f1] px-2.5 py-1.5 text-xs font-bold text-[#2b6d61]">
+                          <span className="shrink-0 rounded-md bg-[#eaf4f1] px-2 py-1 text-[10px] font-bold text-[#2b6d61]">
                             Room {resident.roomNumber}
                           </span>
                         </div>
-                        <div className="mt-4 flex items-center justify-between border-t border-[#e4ebe9] pt-3 text-xs text-[#657975]">
-                          <span>{resident.wing}</span>
-                          <span>Age {resident.age}</span>
-                        </div>
+                        <p className="mt-2 font-sans text-[11px] text-[#657975]">
+                          Preferred name: {resident.preferredName} · Age{' '}
+                          {resident.age}
+                        </p>
                       </div>
                     </article>
                   ))}
