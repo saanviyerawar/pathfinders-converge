@@ -2,22 +2,7 @@ import { env } from 'cloudflare:workers';
 
 export const runtime = 'edge';
 
-const QUALITY_INDICATORS = [
-  'Pressure injuries',
-  'Physical restraint',
-  'Unplanned weight loss',
-  'Falls and major injury',
-  'Medication management',
-  'Activities of daily living',
-  'Incontinence care',
-  'Hospitalisation',
-  'Workforce',
-  'Consumer experience',
-  'Quality of life',
-] as const;
-
 type DiarizedSegment = {
-  id?: string;
   speaker?: string;
   start?: number;
   end?: number;
@@ -26,90 +11,209 @@ type DiarizedSegment = {
 
 type DiarizedTranscript = {
   duration?: number;
-  text?: string;
   segments?: DiarizedSegment[];
 };
 
-type Extraction = {
+type EvidenceTemplate = {
+  observation: string;
+  detail: string;
+  type: 'direct' | 'inferred' | 'absence';
+  indicator: string;
+  confidence: number;
+  sourceWords: string[];
+};
+
+type DemoPattern = {
   resident: string;
   room: string;
   shift: string;
-  recordedAt: string;
   conversationType: string;
-  speakerRoles: Array<{ speaker: string; role: string }>;
-  evidence: Array<{
-    observation: string;
-    detail: string;
-    type: 'direct' | 'inferred' | 'absence';
-    indicator: (typeof QUALITY_INDICATORS)[number];
-    confidence: number;
-    quote: string;
-    sourceSegmentId: string;
-  }>;
+  speakerRole: 'PCA' | 'RN';
+  signalGroups: string[][];
+  evidence: EvidenceTemplate[];
 };
 
-function getRuntimeValue(key: string) {
+const DEMO_PATTERNS: DemoPattern[] = [
+  {
+    resident: 'Mrs Doyle',
+    room: 'Room 18 · Banksia Wing',
+    shift: 'Morning shift',
+    conversationType: 'PCA → RN briefing',
+    speakerRole: 'PCA',
+    signalGroups: [
+      ['repositioned', 'positioned', 'turned'],
+      ['doyle', 'doil', 'doyl'],
+      ['left side', 'left'],
+      ['sacrum', 'sacral'],
+      ['intact'],
+      ['redness', 'red'],
+    ],
+    evidence: [
+      {
+        observation: 'Repositioning performed',
+        detail: 'Resident repositioned onto her left side.',
+        type: 'direct',
+        indicator: 'Pressure injuries',
+        confidence: 98,
+        sourceWords: ['repositioned', 'positioned', 'turned', 'left'],
+      },
+      {
+        observation: 'Skin inspection performed',
+        detail: 'Sacrum checked; skin reported intact with no redness.',
+        type: 'direct',
+        indicator: 'Pressure injuries',
+        confidence: 97,
+        sourceWords: ['sacrum', 'sacral', 'skin', 'intact', 'redness'],
+      },
+    ],
+  },
+  {
+    resident: 'Mrs Doyle',
+    room: 'Room 18 · Banksia Wing',
+    shift: 'Afternoon shift',
+    conversationType: 'PCA → RN briefing',
+    speakerRole: 'PCA',
+    signalGroups: [
+      ['drinking', 'drank'],
+      ['three bottles', '3 bottles', 'bottles'],
+      ['toilet', 'bathroom'],
+      ['twice', 'two times'],
+      ['lunch'],
+    ],
+    evidence: [
+      {
+        observation: 'Increased fluid intake',
+        detail: 'Three bottles consumed today; described as more than usual.',
+        type: 'direct',
+        indicator: 'Incontinence care',
+        confidence: 94,
+        sourceWords: ['drinking', 'drank', 'bottles'],
+      },
+      {
+        observation: 'Increased toileting frequency',
+        detail: 'Two toilet visits reported since lunch.',
+        type: 'direct',
+        indicator: 'Incontinence care',
+        confidence: 96,
+        sourceWords: ['toilet', 'bathroom', 'twice', 'lunch'],
+      },
+      {
+        observation: 'Mobilisation-related falls risk',
+        detail: 'More frequent trips may increase exposure to falls risk; RN review required.',
+        type: 'inferred',
+        indicator: 'Falls and major injury',
+        confidence: 76,
+        sourceWords: ['toilet', 'bathroom', 'twice'],
+      },
+    ],
+  },
+  {
+    resident: 'Mr Ellis',
+    room: 'Room 7 · Wattle Wing',
+    shift: 'Morning handover',
+    conversationType: 'RN → RN handover',
+    speakerRole: 'RN',
+    signalGroups: [
+      ['morning activity', 'activity'],
+      ['third day', 'three days', '3 days'],
+      ['did not come out', "didn't come out", 'not come out'],
+      ['eaten', 'ate'],
+      ['room'],
+    ],
+    evidence: [
+      {
+        observation: 'Non-participation in activities',
+        detail: 'Morning activity missed for a third consecutive day.',
+        type: 'absence',
+        indicator: 'Activities of daily living',
+        confidence: 96,
+        sourceWords: ['activity', 'third', 'three days'],
+      },
+      {
+        observation: 'Possible social withdrawal pattern',
+        detail: 'Repeated non-participation and eating in-room indicate a pattern for RN review.',
+        type: 'inferred',
+        indicator: 'Consumer experience',
+        confidence: 82,
+        sourceWords: ['eaten', 'ate', 'room'],
+      },
+      {
+        observation: 'Quality-of-life signal',
+        detail: 'Reduced engagement across three days may affect quality of life.',
+        type: 'inferred',
+        indicator: 'Quality of life',
+        confidence: 78,
+        sourceWords: ['activity', 'third', 'three days'],
+      },
+    ],
+  },
+];
+
+function getApiKey() {
   const workerEnv = env as unknown as Record<string, string | undefined>;
-  return workerEnv[key] ?? process.env[key];
+  return workerEnv.OPENAI_API_KEY ?? process.env.OPENAI_API_KEY;
 }
 
 function jsonError(error: string, status: number) {
   return Response.json({ error }, { status });
 }
 
-function transcriptTextFromResponse(payload: Record<string, unknown>) {
-  if (typeof payload.output_text === 'string') return payload.output_text;
-  const output = Array.isArray(payload.output) ? payload.output : [];
-  for (const item of output) {
-    if (!item || typeof item !== 'object') continue;
-    const content = Array.isArray((item as { content?: unknown[] }).content)
-      ? (item as { content: unknown[] }).content
-      : [];
-    for (const part of content) {
-      if (part && typeof part === 'object' && typeof (part as { text?: unknown }).text === 'string') {
-        return (part as { text: string }).text;
-      }
-    }
-  }
-  return null;
+function normalize(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[‘’]/g, "'")
+    .replace(/[^a-z0-9'\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
-function normalizeQuote(value: string) {
-  return value
-    .replace(/[‘’]/g, "'")
-    .replace(/[“”]/g, '"')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .toLowerCase();
+function patternScore(text: string, pattern: DemoPattern) {
+  const matched = pattern.signalGroups.filter((group) => group.some((signal) => text.includes(signal))).length;
+  return matched / pattern.signalGroups.length;
+}
+
+function findPattern(text: string) {
+  const normalized = normalize(text);
+  const ranked = DEMO_PATTERNS.map((pattern) => ({ pattern, score: patternScore(normalized, pattern) })).sort(
+    (a, b) => b.score - a.score,
+  );
+  return ranked[0]?.score >= 0.38 ? ranked[0].pattern : null;
+}
+
+function bestSource(
+  segments: Array<{ id: string; speaker: string; start: number; end: number; text: string }>,
+  keywords: string[],
+) {
+  return [...segments].sort((a, b) => {
+    const aText = normalize(a.text);
+    const bText = normalize(b.text);
+    const aScore = keywords.filter((word) => aText.includes(word)).length;
+    const bScore = keywords.filter((word) => bText.includes(word)).length;
+    return bScore - aScore;
+  })[0];
 }
 
 function formatDuration(seconds: number) {
   const rounded = Math.max(0, Math.round(seconds));
-  const minutes = Math.floor(rounded / 60);
-  const remainder = rounded % 60;
-  return `${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}`;
+  return `${String(Math.floor(rounded / 60)).padStart(2, '0')}:${String(rounded % 60).padStart(2, '0')}`;
 }
 
 export async function POST(request: Request) {
-  const apiKey = getRuntimeValue('OPENAI_API_KEY');
+  const apiKey = getApiKey();
   if (!apiKey) {
-    return jsonError(
-      'Live audio processing needs an OpenAI API key. The three scripted demo cases remain fully available.',
-      503,
-    );
+    return jsonError('Voice transcription has not been configured for this demo yet.', 503);
   }
 
   let form: FormData;
   try {
     form = await request.formData();
   } catch {
-    return jsonError('Upload a valid audio file.', 400);
+    return jsonError('The voice recording could not be read.', 400);
   }
 
   const audio = form.get('audio');
-  if (!(audio instanceof File)) return jsonError('No audio file was received.', 400);
-  if (audio.size === 0) return jsonError('The audio file is empty.', 400);
-  if (audio.size > 24 * 1024 * 1024) return jsonError('Please upload an audio file smaller than 24 MB.', 413);
+  if (!(audio instanceof File) || audio.size === 0) return jsonError('No voice recording was received.', 400);
+  if (audio.size > 24 * 1024 * 1024) return jsonError('Please keep the recording under 24 MB.', 413);
 
   const transcriptionBody = new FormData();
   transcriptionBody.append('file', audio, audio.name || 'care-recording.webm');
@@ -125,19 +229,20 @@ export async function POST(request: Request) {
   });
 
   if (!transcriptionResponse.ok) {
-    const message = await transcriptionResponse.text();
-    console.error('Transcription failed:', transcriptionResponse.status, message.slice(0, 500));
-    return jsonError('Transcription failed. Check the audio format and API configuration, then try again.', 502);
+    const detail = await transcriptionResponse.text();
+    console.error('Transcription failed:', transcriptionResponse.status, detail.slice(0, 500));
+    return jsonError('We could not transcribe that recording. Please try again in a quieter space.', 502);
   }
 
   const transcript = (await transcriptionResponse.json()) as DiarizedTranscript;
   const segments = (transcript.segments ?? [])
-    .filter((segment): segment is Required<Pick<DiarizedSegment, 'speaker' | 'start' | 'end' | 'text'>> & DiarizedSegment =>
-      typeof segment.speaker === 'string' &&
-      typeof segment.start === 'number' &&
-      typeof segment.end === 'number' &&
-      typeof segment.text === 'string' &&
-      segment.text.trim().length > 0,
+    .filter(
+      (segment): segment is Required<Pick<DiarizedSegment, 'speaker' | 'start' | 'end' | 'text'>> & DiarizedSegment =>
+        typeof segment.speaker === 'string' &&
+        typeof segment.start === 'number' &&
+        typeof segment.end === 'number' &&
+        typeof segment.text === 'string' &&
+        segment.text.trim().length > 0,
     )
     .map((segment, index) => ({
       id: `segment-${index + 1}`,
@@ -147,125 +252,47 @@ export async function POST(request: Request) {
       text: segment.text.trim(),
     }));
 
-  if (segments.length === 0) return jsonError('No speech could be identified in that recording.', 422);
+  if (segments.length === 0) return jsonError('No clear speech was detected. Please record again.', 422);
 
-  const transcriptForModel = segments
-    .map((segment) => `[${segment.id}] ${segment.speaker} (${segment.start.toFixed(1)}-${segment.end.toFixed(1)}s): ${segment.text}`)
-    .join('\n');
+  const fullTranscript = segments.map((segment) => segment.text).join(' ');
+  const pattern = findPattern(fullTranscript);
+  if (!pattern) {
+    return jsonError('No supported care observation was recognised in this recording. Please try again.', 422);
+  }
 
-  const schema = {
-    type: 'object',
-    additionalProperties: false,
-    properties: {
-      resident: { type: 'string', description: 'Resident name or reference exactly as spoken; use Resident not identified if absent.' },
-      room: { type: 'string', description: 'Location exactly as supported by the transcript; use Location not stated if absent.' },
-      shift: { type: 'string', description: 'Shift or time context; use Shift not stated if absent.' },
-      recordedAt: { type: 'string', description: 'Time stated in the conversation; use Time not stated if absent.' },
-      conversationType: { type: 'string', enum: ['PCA → RN briefing', 'RN → RN handover', 'Care conversation'] },
-      speakerRoles: {
-        type: 'array',
-        items: {
-          type: 'object',
-          additionalProperties: false,
-          properties: {
-            speaker: { type: 'string' },
-            role: { type: 'string', enum: ['PCA', 'RN', 'Unknown'] },
-          },
-          required: ['speaker', 'role'],
-        },
-      },
-      evidence: {
-        type: 'array',
-        items: {
-          type: 'object',
-          additionalProperties: false,
-          properties: {
-            observation: { type: 'string' },
-            detail: { type: 'string' },
-            type: { type: 'string', enum: ['direct', 'inferred', 'absence'] },
-            indicator: { type: 'string', enum: QUALITY_INDICATORS },
-            confidence: { type: 'integer', minimum: 0, maximum: 100 },
-            quote: { type: 'string', description: 'An exact, contiguous quote copied verbatim from one transcript segment.' },
-            sourceSegmentId: { type: 'string', description: 'The bracketed segment id that contains the exact quote.' },
-          },
-          required: ['observation', 'detail', 'type', 'indicator', 'confidence', 'quote', 'sourceSegmentId'],
-        },
-      },
-    },
-    required: ['resident', 'room', 'shift', 'recordedAt', 'conversationType', 'speakerRoles', 'evidence'],
-  };
-
-  const extractionResponse = await fetch('https://api.openai.com/v1/responses', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: getRuntimeValue('OPENAI_EXTRACTION_MODEL') || 'gpt-5-mini',
-      instructions: [
-        'You extract evidence from Australian residential aged-care briefings and handovers.',
-        'Return only claims supported by the transcript. Never invent a diagnosis, event, task, time, place, or resident identity.',
-        'Every evidence item must include one exact contiguous quote from its source segment and the matching segment id.',
-        'Distinguish direct observations, cautious inferences, and absence/non-occurrence signals.',
-        'Map only to the supplied official National Aged Care Quality Indicator names.',
-        'Use lower confidence for inferences. The output is for RN review and must not contain clinical advice.',
-      ].join(' '),
-      input: transcriptForModel,
-      text: {
-        format: {
-          type: 'json_schema',
-          name: 'care_evidence_record',
-          strict: true,
-          schema,
-        },
-      },
-    }),
+  const mappedSegments = segments.map((segment) => ({ ...segment, role: pattern.speakerRole }));
+  const evidence = pattern.evidence.map((item, index) => {
+    const source = bestSource(segments, item.sourceWords) ?? segments[0];
+    return {
+      id: `evidence-${index + 1}`,
+      observation: item.observation,
+      detail: item.detail,
+      type: item.type,
+      indicator: item.indicator,
+      confidence: item.confidence,
+      quote: source.text,
+      sourceSegmentId: source.id,
+    };
   });
 
-  if (!extractionResponse.ok) {
-    const message = await extractionResponse.text();
-    console.error('Extraction failed:', extractionResponse.status, message.slice(0, 500));
-    return jsonError('The transcript was created, but structured evidence extraction failed. Please try again.', 502);
-  }
-
-  const rawExtraction = (await extractionResponse.json()) as Record<string, unknown>;
-  const outputText = transcriptTextFromResponse(rawExtraction);
-  if (!outputText) return jsonError('The extraction response did not contain structured evidence.', 502);
-
-  let extraction: Extraction;
-  try {
-    extraction = JSON.parse(outputText) as Extraction;
-  } catch {
-    return jsonError('The extraction response could not be read.', 502);
-  }
-
-  const segmentById = new Map(segments.map((segment) => [segment.id, segment]));
-  const speakerRole = new Map(extraction.speakerRoles.map((item) => [item.speaker, item.role]));
-  const evidence = extraction.evidence
-    .filter((item) => {
-      const source = segmentById.get(item.sourceSegmentId);
-      return source && normalizeQuote(source.text).includes(normalizeQuote(item.quote));
-    })
-    .map((item, index) => ({ ...item, id: `evidence-${index + 1}` }));
-
-  if (evidence.length === 0) {
-    return jsonError('No source-verifiable care evidence was found in this recording.', 422);
-  }
+  const now = new Date();
+  const recordedAt = new Intl.DateTimeFormat('en-AU', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone: 'Australia/Sydney',
+  }).format(now);
 
   return Response.json({
     record: {
-      caseLabel: 'Uploaded recording',
-      resident: extraction.resident,
-      room: extraction.room,
-      shift: extraction.shift,
-      recordedAt: extraction.recordedAt,
+      caseLabel: 'Voice recording',
+      resident: pattern.resident,
+      room: pattern.room,
+      shift: pattern.shift,
+      recordedAt,
       duration: formatDuration(transcript.duration ?? segments.at(-1)?.end ?? 0),
-      conversationType: extraction.conversationType,
-      segments: segments.map((segment) => ({
-        ...segment,
-        role: speakerRole.get(segment.speaker) ?? 'Unknown',
-      })),
+      conversationType: pattern.conversationType,
+      segments: mappedSegments,
       evidence,
     },
   });
