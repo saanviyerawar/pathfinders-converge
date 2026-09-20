@@ -35,12 +35,13 @@ type DemoPattern = {
 
 const DEMO_PATTERNS: DemoPattern[] = [
   {
-    resident: 'Mrs Doyle',
-    room: 'Room 18 · Banksia Wing',
+    resident: 'Eliza Doyle',
+    room: 'Room 20 · Banksia Wing',
     shift: 'Morning shift',
     conversationType: 'PCA → RN briefing',
     speakerRole: 'PCA',
     signalGroups: [
+      ['room 20', 'room twenty'],
       ['repositioned', 'positioned', 'turned'],
       ['doyle', 'doil', 'doyl'],
       ['left side', 'left'],
@@ -68,12 +69,13 @@ const DEMO_PATTERNS: DemoPattern[] = [
     ],
   },
   {
-    resident: 'Mrs Doyle',
-    room: 'Room 18 · Banksia Wing',
+    resident: 'Beth Jones',
+    room: 'Room 41 · Jacaranda Wing',
     shift: 'Afternoon shift',
     conversationType: 'PCA → RN briefing',
     speakerRole: 'PCA',
     signalGroups: [
+      ['room 41', 'room forty one', 'room forty-one'],
       ['drinking', 'drank'],
       ['three bottles', '3 bottles', 'bottles'],
       ['toilet', 'bathroom'],
@@ -99,7 +101,8 @@ const DEMO_PATTERNS: DemoPattern[] = [
       },
       {
         observation: 'Mobilisation-related falls risk',
-        detail: 'More frequent trips may increase exposure to falls risk; RN review required.',
+        detail:
+          'More frequent trips may increase exposure to falls risk; RN review required.',
         type: 'inferred',
         indicator: 'Falls and major injury',
         confidence: 76,
@@ -108,12 +111,13 @@ const DEMO_PATTERNS: DemoPattern[] = [
     ],
   },
   {
-    resident: 'Mr Ellis',
-    room: 'Room 7 · Wattle Wing',
+    resident: 'Jake Smith',
+    room: 'Room 6 · Wattle Wing',
     shift: 'Morning handover',
     conversationType: 'RN → RN handover',
     speakerRole: 'RN',
     signalGroups: [
+      ['room 6', 'room six'],
       ['morning activity', 'activity'],
       ['third day', 'three days', '3 days'],
       ['did not come out', "didn't come out", 'not come out'],
@@ -131,7 +135,8 @@ const DEMO_PATTERNS: DemoPattern[] = [
       },
       {
         observation: 'Possible social withdrawal pattern',
-        detail: 'Repeated non-participation and eating in-room indicate a pattern for RN review.',
+        detail:
+          'Repeated non-participation and eating in-room indicate a pattern for RN review.',
         type: 'inferred',
         indicator: 'Consumer experience',
         confidence: 82,
@@ -139,7 +144,8 @@ const DEMO_PATTERNS: DemoPattern[] = [
       },
       {
         observation: 'Quality-of-life signal',
-        detail: 'Reduced engagement across three days may affect quality of life.',
+        detail:
+          'Reduced engagement across three days may affect quality of life.',
         type: 'inferred',
         indicator: 'Quality of life',
         confidence: 78,
@@ -168,20 +174,29 @@ function normalize(value: string) {
 }
 
 function patternScore(text: string, pattern: DemoPattern) {
-  const matched = pattern.signalGroups.filter((group) => group.some((signal) => text.includes(signal))).length;
+  const matched = pattern.signalGroups.filter((group) =>
+    group.some((signal) => text.includes(signal)),
+  ).length;
   return matched / pattern.signalGroups.length;
 }
 
 function findPattern(text: string) {
   const normalized = normalize(text);
-  const ranked = DEMO_PATTERNS.map((pattern) => ({ pattern, score: patternScore(normalized, pattern) })).sort(
-    (a, b) => b.score - a.score,
-  );
+  const ranked = DEMO_PATTERNS.map((pattern) => ({
+    pattern,
+    score: patternScore(normalized, pattern),
+  })).sort((a, b) => b.score - a.score);
   return ranked[0]?.score >= 0.38 ? ranked[0].pattern : null;
 }
 
 function bestSource(
-  segments: Array<{ id: string; speaker: string; start: number; end: number; text: string }>,
+  segments: Array<{
+    id: string;
+    speaker: string;
+    start: number;
+    end: number;
+    text: string;
+  }>,
   keywords: string[],
 ) {
   return [...segments].sort((a, b) => {
@@ -201,7 +216,10 @@ function formatDuration(seconds: number) {
 export async function POST(request: Request) {
   const apiKey = getApiKey();
   if (!apiKey) {
-    return jsonError('Voice transcription has not been configured for this demo yet.', 503);
+    return jsonError(
+      'Voice transcription has not been configured for this demo yet.',
+      503,
+    );
   }
 
   let form: FormData;
@@ -212,8 +230,10 @@ export async function POST(request: Request) {
   }
 
   const audio = form.get('audio');
-  if (!(audio instanceof File) || audio.size === 0) return jsonError('No voice recording was received.', 400);
-  if (audio.size > 24 * 1024 * 1024) return jsonError('Please keep the recording under 24 MB.', 413);
+  if (!(audio instanceof File) || audio.size === 0)
+    return jsonError('No voice recording was received.', 400);
+  if (audio.size > 24 * 1024 * 1024)
+    return jsonError('Please keep the recording under 24 MB.', 413);
 
   const transcriptionBody = new FormData();
   transcriptionBody.append('file', audio, audio.name || 'care-recording.webm');
@@ -222,22 +242,37 @@ export async function POST(request: Request) {
   transcriptionBody.append('chunking_strategy', 'auto');
   transcriptionBody.append('language', 'en');
 
-  const transcriptionResponse = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}` },
-    body: transcriptionBody,
-  });
+  const transcriptionResponse = await fetch(
+    'https://api.openai.com/v1/audio/transcriptions',
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}` },
+      body: transcriptionBody,
+    },
+  );
 
   if (!transcriptionResponse.ok) {
     const detail = await transcriptionResponse.text();
-    console.error('Transcription failed:', transcriptionResponse.status, detail.slice(0, 500));
-    return jsonError('We could not transcribe that recording. Please try again in a quieter space.', 502);
+    console.error(
+      'Transcription failed:',
+      transcriptionResponse.status,
+      detail.slice(0, 500),
+    );
+    return jsonError(
+      'We could not transcribe that recording. Please try again in a quieter space.',
+      502,
+    );
   }
 
   const transcript = (await transcriptionResponse.json()) as DiarizedTranscript;
   const segments = (transcript.segments ?? [])
     .filter(
-      (segment): segment is Required<Pick<DiarizedSegment, 'speaker' | 'start' | 'end' | 'text'>> & DiarizedSegment =>
+      (
+        segment,
+      ): segment is Required<
+        Pick<DiarizedSegment, 'speaker' | 'start' | 'end' | 'text'>
+      > &
+        DiarizedSegment =>
         typeof segment.speaker === 'string' &&
         typeof segment.start === 'number' &&
         typeof segment.end === 'number' &&
@@ -252,15 +287,22 @@ export async function POST(request: Request) {
       text: segment.text.trim(),
     }));
 
-  if (segments.length === 0) return jsonError('No clear speech was detected. Please record again.', 422);
+  if (segments.length === 0)
+    return jsonError('No clear speech was detected. Please record again.', 422);
 
   const fullTranscript = segments.map((segment) => segment.text).join(' ');
   const pattern = findPattern(fullTranscript);
   if (!pattern) {
-    return jsonError('No supported care observation was recognised in this recording. Please try again.', 422);
+    return jsonError(
+      'No supported care observation was recognised in this recording. Please try again.',
+      422,
+    );
   }
 
-  const mappedSegments = segments.map((segment) => ({ ...segment, role: pattern.speakerRole }));
+  const mappedSegments = segments.map((segment) => ({
+    ...segment,
+    role: pattern.speakerRole,
+  }));
   const evidence = pattern.evidence.map((item, index) => {
     const source = bestSource(segments, item.sourceWords) ?? segments[0];
     return {
@@ -290,7 +332,9 @@ export async function POST(request: Request) {
       room: pattern.room,
       shift: pattern.shift,
       recordedAt,
-      duration: formatDuration(transcript.duration ?? segments.at(-1)?.end ?? 0),
+      duration: formatDuration(
+        transcript.duration ?? segments.at(-1)?.end ?? 0,
+      ),
       conversationType: pattern.conversationType,
       segments: mappedSegments,
       evidence,
