@@ -81,16 +81,49 @@
   --sidebar-ring: oklch(0.75 0.08 169);
 }
 
-* { box-sizing: border-box; }
-html { font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif; background: var(--background); }
-body { margin: 0; background: var(--background); color: var(--foreground); }
-button, input { font: inherit; }
-button:focus-visible, input:focus-visible { outline: 3px solid color-mix(in oklab, var(--ring) 34%, transparent); outline-offset: 2px; }
-::selection { background: #d8f26a; color: #173f3c; }
-::-webkit-scrollbar { width: 9px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { border: 3px solid transparent; border-radius: 999px; background: #c8d5d2; background-clip: content-box; }
+* {
+  box-sizing: border-box;
+}
+html {
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  background: var(--background);
+}
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+button:focus-visible,
+input:focus-visible {
+  outline: 3px solid color-mix(in oklab, var(--ring) 34%, transparent);
+  outline-offset: 2px;
+}
+::selection {
+  background: #d8f26a;
+  color: #173f3c;
+}
+::-webkit-scrollbar {
+  width: 9px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: #c8d5d2;
+  background-clip: content-box;
+}
 
 @layer base {
-  * { @apply border-border outline-ring/50; }
+  * {
+    @apply border-border outline-ring/50;
+  }
 }

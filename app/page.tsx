@@ -345,7 +345,7 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f4f7f6] text-[#182625]">
+    <main className="min-h-screen bg-[#f4f7f6] font-sans text-[#182625]">
       <div className="mx-auto flex min-h-screen max-w-[1720px]">
         <aside className="hidden w-[62px] shrink-0 border-r border-[#dbe5e2] bg-[#0c3a38] text-white lg:flex lg:flex-col">
           <div className="flex h-20 items-center justify-center border-b border-white/10">
@@ -541,7 +541,7 @@ export default function Home() {
                           </button>
                         </div>
                         <p
-                          className={`mt-1 font-semibold tracking-tight ${isRecording ? 'font-mono text-2xl text-[#a34231]' : 'text-base text-[#263d39]'}`}
+                          className={`mt-1 font-semibold tracking-tight ${isRecording ? 'text-2xl tabular-nums text-[#a34231]' : 'text-base text-[#263d39]'}`}
                         >
                           {isRecording
                             ? formatClock(elapsed)
@@ -804,7 +804,7 @@ export default function Home() {
                                           {segment.speaker}
                                         </span>
                                       </div>
-                                      <span className="font-mono text-[10px] text-[#8b9997]">
+                                      <span className="text-[10px] tabular-nums text-[#8b9997]">
                                         {formatSegmentTime(segment.start)}–
                                         {formatSegmentTime(segment.end)}
                                       </span>
