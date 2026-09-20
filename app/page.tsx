@@ -487,12 +487,8 @@ export default function Home() {
               </section>
             ) : (
               <>
-                <div className="mb-6 flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
+                <div className="mb-6">
                   <div>
-                    <div className="mb-2 flex items-center gap-2 text-xs font-medium text-[#46736f]">
-                      <span className="size-2 rounded-full bg-[#4a9b83]" />
-                      Ready to capture a care conversation
-                    </div>
                     <h1 className="font-heading text-2xl font-semibold tracking-[-0.025em] sm:text-[30px]">
                       Speak naturally. Keep the evidence.
                     </h1>
@@ -500,10 +496,6 @@ export default function Home() {
                       Record a bounded briefing or handover, then review every
                       mapped observation against the words that produced it.
                     </p>
-                  </div>
-                  <div className="flex items-center gap-2 text-xs text-[#667875]">
-                    <ShieldCheck className="size-4" />
-                    Nothing is saved to a clinical record
                   </div>
                 </div>
 
