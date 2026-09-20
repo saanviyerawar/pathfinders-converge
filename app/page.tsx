@@ -4,18 +4,16 @@ import { useEffect, useRef, useState } from 'react';
 import {
   Activity,
   AudioLines,
-  Check,
   ChevronDown,
   CircleUserRound,
   FileAudio,
   LayoutDashboard,
+  LoaderCircle,
   MapPin,
   Mic,
   MoreHorizontal,
-  RotateCcw,
   Search,
   ShieldCheck,
-  Sparkles,
   Square,
   UsersRound,
   Waves,
@@ -55,7 +53,14 @@ type CareRecord = {
   evidence: Evidence[];
 };
 
-type FlowState = 'idle' | 'recording' | 'transcribing' | 'mapping' | 'done';
+type QueueItem = {
+  id: string;
+  blob: Blob;
+  mimeType: string;
+  duration: number;
+  status: 'waiting' | 'processing';
+  remaining: number;
+};
 
 const navItems = [
   { label: 'Shift overview', icon: LayoutDashboard, active: true },
@@ -82,7 +87,8 @@ function typeLabel(type: Evidence['type']) {
 
 export default function Home() {
   const [record, setRecord] = useState<CareRecord | null>(null);
-  const [flow, setFlow] = useState<FlowState>('idle');
+  const [isRecording, setIsRecording] = useState(false);
+  const [queue, setQueue] = useState<QueueItem[]>([]);
   const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [activeEvidence, setActiveEvidence] = useState<string | null>(null);
@@ -90,9 +96,11 @@ export default function Home() {
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const elapsedRef = useRef(0);
+  const queueRef = useRef<QueueItem[]>([]);
+  const processingRef = useRef(false);
+  const noteNumberRef = useRef(1);
 
-  const isRecording = flow === 'recording';
-  const isProcessing = flow === 'transcribing' || flow === 'mapping';
   const indicators = record ? [...new Set(record.evidence.map((item) => item.indicator))] : [];
   const activeSource = record?.evidence.find((item) => item.id === activeEvidence)?.sourceSegmentId;
 
@@ -103,39 +111,68 @@ export default function Home() {
     };
   }, []);
 
-  async function processRecording(blob: Blob, mimeType: string) {
-    setFlow('transcribing');
-    setError(null);
+  function updateQueueItem(id: string, updates: Partial<QueueItem>) {
+    queueRef.current = queueRef.current.map((item) => (item.id === id ? { ...item, ...updates } : item));
+    setQueue(queueRef.current);
+  }
 
+  async function processQueue() {
+    if (processingRef.current) return;
+    const next = queueRef.current.find((item) => item.status === 'waiting');
+    if (!next) return;
+
+    processingRef.current = true;
+    updateQueueItem(next.id, { status: 'processing', remaining: 10 });
     try {
-      const extension = mimeType.includes('mp4') ? 'm4a' : mimeType.includes('ogg') ? 'ogg' : 'webm';
-      const file = new File([blob], `care-note-${Date.now()}.${extension}`, { type: mimeType });
+      const extension = next.mimeType.includes('mp4') ? 'm4a' : next.mimeType.includes('ogg') ? 'ogg' : 'webm';
+      const file = new File([next.blob], `${next.id}.${extension}`, { type: next.mimeType });
       const body = new FormData();
       body.append('audio', file);
 
       const request = fetch('/api/process', { method: 'POST', body });
-      await delay(800);
-      setFlow('mapping');
+      for (let remaining = 10; remaining > 0; remaining -= 1) {
+        updateQueueItem(next.id, { remaining });
+        await delay(1000);
+      }
+      updateQueueItem(next.id, { remaining: 0 });
+
       const response = await request;
       const payload = (await response.json()) as { error?: string; record?: CareRecord };
       if (!response.ok) throw new Error(payload.error || 'The recording could not be processed.');
       if (!payload.record) throw new Error('The processed care record was empty.');
 
-      await delay(450);
       setRecord(payload.record);
       setActiveEvidence(null);
-      setFlow('done');
     } catch (processingError) {
       setError(processingError instanceof Error ? processingError.message : 'The recording could not be processed.');
-      setFlow('idle');
+    } finally {
+      queueRef.current = queueRef.current.filter((item) => item.id !== next.id);
+      setQueue(queueRef.current);
+      processingRef.current = false;
+      void processQueue();
     }
+  }
+
+  function enqueueRecording(blob: Blob, mimeType: string, duration: number) {
+    const item: QueueItem = {
+      id: `care-note-${String(noteNumberRef.current).padStart(2, '0')}`,
+      blob,
+      mimeType,
+      duration,
+      status: 'waiting',
+      remaining: 10,
+    };
+    noteNumberRef.current += 1;
+    queueRef.current = [...queueRef.current, item];
+    setQueue(queueRef.current);
+    void processQueue();
   }
 
   async function startRecording() {
     setError(null);
-    setRecord(null);
     setActiveEvidence(null);
     setElapsed(0);
+    elapsedRef.current = 0;
 
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
       setError('Voice recording is not supported in this browser. Please use a current version of Chrome, Edge or Safari.');
@@ -159,7 +196,7 @@ export default function Home() {
       };
       recorder.onerror = () => {
         setError('The microphone recording was interrupted. Please try again.');
-        setFlow('idle');
+        setIsRecording(false);
       };
       recorder.onstop = () => {
         if (timerRef.current) clearInterval(timerRef.current);
@@ -169,29 +206,25 @@ export default function Home() {
         const recordingType = recorder.mimeType || mimeType || 'audio/webm';
         const blob = new Blob(chunksRef.current, { type: recordingType });
         chunksRef.current = [];
-        void processRecording(blob, recordingType);
+        setIsRecording(false);
+        enqueueRecording(blob, recordingType, elapsedRef.current);
       };
 
       recorder.start(250);
-      setFlow('recording');
-      timerRef.current = setInterval(() => setElapsed((value) => value + 1), 1000);
+      setIsRecording(true);
+      timerRef.current = setInterval(() => {
+        elapsedRef.current += 1;
+        setElapsed(elapsedRef.current);
+      }, 1000);
     } catch (permissionError) {
       console.error(permissionError);
       setError('Microphone access is needed to capture the care conversation. Please allow access and try again.');
-      setFlow('idle');
+      setIsRecording(false);
     }
   }
 
   function stopRecording() {
     if (recorderRef.current?.state === 'recording') recorderRef.current.stop();
-  }
-
-  function reset() {
-    setRecord(null);
-    setFlow('idle');
-    setError(null);
-    setElapsed(0);
-    setActiveEvidence(null);
   }
 
   return (
@@ -256,60 +289,65 @@ export default function Home() {
             </div>
 
             <div className="grid gap-5 xl:grid-cols-[340px_minmax(0,1fr)]">
-              <aside className="space-y-5">
-                <section className="rounded-2xl border border-[#d9e4e1] bg-white p-5 shadow-[0_12px_30px_rgba(20,55,51,0.045)]">
-                  <div className="mb-5 flex items-start justify-between gap-4">
-                    <div><h2 className="text-base font-semibold tracking-tight">Record care note</h2><p className="mt-1 text-xs leading-relaxed text-[#748481]">One press to start. One press to finish.</p></div>
-                    <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-[#e6f3ef] text-[#26715f]"><Mic className="size-[18px]" /></span>
+              <aside>
+                <section className="rounded-2xl border border-[#d9e4e1] bg-white px-5 py-8 shadow-[0_12px_30px_rgba(20,55,51,0.045)]">
+                  <div className="flex flex-col items-center text-center">
+                    <div className="relative grid size-36 place-items-center">
+                      {isRecording && [1, 2, 3].map((ring) => (
+                        <span
+                          key={ring}
+                          className="absolute left-1/2 top-1/2 size-24 -translate-x-1/2 -translate-y-1/2 animate-ping rounded-full border border-[#df8a79] opacity-50"
+                          style={{ animationDelay: `${ring * 240}ms`, animationDuration: '1.8s' }}
+                        />
+                      ))}
+                      <button
+                        type="button"
+                        onClick={isRecording ? stopRecording : startRecording}
+                        className={`relative z-10 grid size-24 place-items-center rounded-full text-white shadow-[0_14px_34px_rgba(20,55,51,0.22)] transition hover:scale-[1.03] active:scale-[0.98] ${isRecording ? 'bg-[#c95d4a]' : 'bg-[#0c3a38]'}`}
+                        aria-label={isRecording ? 'Stop recording' : 'Start recording'}
+                      >
+                        {isRecording ? <Square className="size-8 fill-current" /> : <Mic className="size-9" />}
+                      </button>
+                    </div>
+                    <p className={`mt-1 font-semibold tracking-tight ${isRecording ? 'font-mono text-2xl text-[#a34231]' : 'text-base text-[#263d39]'}`}>
+                      {isRecording ? formatClock(elapsed) : 'Record care note'}
+                    </p>
                   </div>
 
-                  <div className={`relative flex min-h-[268px] flex-col items-center justify-center overflow-hidden rounded-2xl border px-5 py-7 text-center transition ${isRecording ? 'border-[#d46b58] bg-[#fff7f4]' : isProcessing ? 'border-[#8bb8ae] bg-[#f0f7f5]' : 'border-[#dbe5e2] bg-[#f8faf9]'}`}>
-                    {isRecording && (
-                      <div className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-45" aria-hidden="true">
-                        {[1, 2, 3].map((ring) => <span key={ring} className="absolute size-28 animate-ping rounded-full border border-[#df8a79]" style={{ animationDelay: `${ring * 240}ms`, animationDuration: '1.8s' }} />)}
+                  {queue.length > 0 && (
+                    <div className="mt-7 border-t border-[#e1e9e7] pt-5">
+                      <div className="mb-4 flex items-center justify-between">
+                        <p className="text-[10px] font-bold uppercase tracking-[0.13em] text-[#7b8d89]">Processing queue</p>
+                        <span className="text-[10px] font-medium text-[#8b9a97]">One at a time</span>
                       </div>
-                    )}
-
-                    {isProcessing ? (
-                      <>
-                        <span className="relative mb-4 grid size-20 place-items-center rounded-full bg-[#0c3a38] text-[#d8f26a] shadow-lg"><AudioLines className="size-8 animate-pulse" /></span>
-                        <p className="text-base font-semibold">{flow === 'transcribing' ? 'Transcribing conversation' : 'Mapping care evidence'}</p>
-                        <p className="mt-1 text-xs text-[#748481]">{flow === 'transcribing' ? 'Separating speakers and converting speech to text…' : 'Linking observations to quality indicators…'}</p>
-                        <div className="mt-5 flex gap-1.5" aria-hidden="true">{[0, 1, 2, 3, 4].map((bar) => <span key={bar} className="w-1 animate-pulse rounded-full bg-[#4d9184]" style={{ height: `${12 + (bar % 3) * 8}px`, animationDelay: `${bar * 120}ms` }} />)}</div>
-                      </>
-                    ) : (
-                      <>
-                        <button type="button" onClick={isRecording ? stopRecording : startRecording} className={`relative grid size-24 place-items-center rounded-full text-white shadow-[0_14px_34px_rgba(20,55,51,0.22)] transition hover:scale-[1.03] active:scale-[0.98] ${isRecording ? 'bg-[#c95d4a]' : 'bg-[#0c3a38]'}`} aria-label={isRecording ? 'Stop recording' : 'Start recording'}>
-                          {isRecording ? <Square className="size-8 fill-current" /> : <Mic className="size-9" />}
-                        </button>
-                        <p className={`mt-5 font-mono text-2xl font-semibold tracking-tight ${isRecording ? 'text-[#a34231]' : 'text-[#203b37]'}`}>{formatClock(elapsed)}</p>
-                        <p className="mt-1 text-sm font-semibold">{isRecording ? 'Recording in progress' : record ? 'Ready for another note' : 'Tap to begin recording'}</p>
-                        <p className="mt-1 text-xs text-[#7a8986]">{isRecording ? 'Press stop when the conversation is complete.' : 'Your browser will ask for microphone access.'}</p>
-                      </>
-                    )}
-                  </div>
-
-                  {error && <div role="alert" className="mt-3 rounded-lg border border-[#efc6bd] bg-[#fff5f2] px-3 py-2.5 text-xs leading-relaxed text-[#9a4634]">{error}</div>}
-
-                  {record && !isProcessing && (
-                    <Button variant="outline" className="mt-3 w-full" onClick={reset}><RotateCcw />Clear and record again</Button>
+                      <div>
+                        {queue.map((item, index) => {
+                          const processing = item.status === 'processing';
+                          return (
+                            <div key={item.id} className="grid grid-cols-[24px_minmax(0,1fr)] gap-3">
+                              <div className="flex flex-col items-center">
+                                <span className={`grid size-6 place-items-center rounded-full ${processing ? 'bg-[#d8f26a] text-[#24423d]' : 'border border-[#b9cac6] bg-white text-[#94a5a1]'}`}>
+                                  {processing ? <LoaderCircle className="size-3.5 animate-spin" /> : <span className="size-1.5 rounded-full bg-current" />}
+                                </span>
+                                {index < queue.length - 1 && <span className="min-h-8 w-px flex-1 bg-[#cfdbd8]" />}
+                              </div>
+                              <div className="flex min-w-0 items-start justify-between gap-3 pb-4">
+                                <div className="min-w-0">
+                                  <p className="truncate text-xs font-semibold capitalize text-[#304642]">{item.id.replaceAll('-', ' ')}</p>
+                                  <p className="mt-0.5 text-[11px] text-[#7c8d89]">{formatClock(item.duration)} recording</p>
+                                </div>
+                                <span className={`shrink-0 rounded-full px-2 py-1 text-[9px] font-bold uppercase tracking-[0.08em] ${processing ? 'bg-[#eff7d8] text-[#567314]' : 'bg-[#f0f3f2] text-[#7b8986]'}`}>
+                                  {processing ? `Processing · ${item.remaining}s` : 'Not started'}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
                   )}
-                </section>
 
-                <section className="rounded-2xl border border-[#d9e4e1] bg-[#113f3c] p-5 text-white shadow-[0_12px_30px_rgba(20,55,51,0.08)]">
-                  <div className="flex items-center gap-2 text-sm font-semibold"><Sparkles className="size-4 text-[#d8f26a]" />Processing trace</div>
-                  <div className="mt-5 space-y-0">
-                    {[
-                      { label: 'Capture', detail: isRecording ? 'Recording securely' : elapsed > 0 ? 'Recording complete' : 'Waiting to begin', complete: elapsed > 0 && !isRecording },
-                      { label: 'Transcribe', detail: flow === 'transcribing' ? 'Separating speakers' : record || flow === 'mapping' ? 'Speakers separated' : 'Waiting for recording', complete: Boolean(record) || flow === 'mapping' },
-                      { label: 'Map', detail: record ? `${record.evidence.length} evidence entries found` : flow === 'mapping' ? 'Classifying observations' : 'Waiting for transcript', complete: Boolean(record) },
-                    ].map((stage, index) => (
-                      <div className="grid grid-cols-[24px_1fr] gap-3" key={stage.label}>
-                        <div className="flex flex-col items-center"><span className={`grid size-6 place-items-center rounded-full ${stage.complete ? 'bg-[#d8f26a] text-[#173f3c]' : 'border border-white/22 bg-white/8 text-white/40'}`}>{stage.complete ? <Check className="size-3.5" strokeWidth={3} /> : <span className="size-1.5 rounded-full bg-current" />}</span>{index < 2 && <span className="h-8 w-px bg-white/18" />}</div>
-                        <div className="pb-4"><p className="text-xs font-semibold">{stage.label}</p><p className="mt-0.5 text-[11px] text-white/50">{stage.detail}</p></div>
-                      </div>
-                    ))}
-                  </div>
+                  {error && <div role="alert" className="mt-4 rounded-lg border border-[#efc6bd] bg-[#fff5f2] px-3 py-2.5 text-xs leading-relaxed text-[#9a4634]">{error}</div>}
                 </section>
               </aside>
 

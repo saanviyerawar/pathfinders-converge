@@ -5,6 +5,7 @@ A working demo that turns bounded PCA-to-RN briefings and RN-to-RN handovers int
 ## What works
 
 - Browser-based voice recording with one press to start and one press to stop
+- A visible FIFO processing queue with a 10-second demonstration cycle per recording
 - Interactive provenance between every evidence item and its transcript source
 - Real server-side audio transcription with speaker diarisation
 - Robust hidden matching to three precomputed demonstration analyses
