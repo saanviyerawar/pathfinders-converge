@@ -61,6 +61,11 @@ type QueueItem = {
   status: 'waiting' | 'processing';
 };
 
+type CareRecordEntry = {
+  id: string;
+  record: CareRecord;
+};
+
 type Resident = {
   id: string;
   name: string;
@@ -157,7 +162,8 @@ function typeLabel(type: Evidence['type']) {
 
 export default function Home() {
   const [view, setView] = useState<'overview' | 'residents'>('overview');
-  const [record, setRecord] = useState<CareRecord | null>(null);
+  const [recordEntries, setRecordEntries] = useState<CareRecordEntry[]>([]);
+  const [activeRecordId, setActiveRecordId] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [elapsed, setElapsed] = useState(0);
@@ -172,6 +178,13 @@ export default function Home() {
   const processingRef = useRef(false);
   const noteNumberRef = useRef(1);
 
+  const activeRecordEntry =
+    recordEntries.find((entry) => entry.id === activeRecordId) ??
+    recordEntries[0];
+  const record = activeRecordEntry?.record ?? null;
+  const recordHistory = recordEntries.filter(
+    (entry) => entry.id !== activeRecordEntry?.id,
+  );
   const indicators = record
     ? [...new Set(record.evidence.map((item) => item.indicator))]
     : [];
@@ -230,7 +243,9 @@ export default function Home() {
       if (!payload.record)
         throw new Error('The processed care record was empty.');
 
-      setRecord(payload.record);
+      const recordEntry = { id: next.id, record: payload.record };
+      setRecordEntries((entries) => [recordEntry, ...entries]);
+      setActiveRecordId(recordEntry.id);
       setActiveEvidence(null);
     } catch (processingError) {
       setError(
@@ -638,7 +653,10 @@ export default function Home() {
                       </section>
                     ) : (
                       <>
-                        <section className="rounded-2xl border border-[#d9e4e1] bg-white shadow-[0_12px_30px_rgba(20,55,51,0.045)]">
+                        <section
+                          id="active-care-record"
+                          className="rounded-2xl border border-[#d9e4e1] bg-white shadow-[0_12px_30px_rgba(20,55,51,0.045)]"
+                        >
                           <div className="flex flex-col gap-4 border-b border-[#e1e8e6] p-5 sm:flex-row sm:items-center sm:justify-between">
                             <div className="flex items-center gap-3">
                               <Avatar className="size-12">
@@ -865,6 +883,90 @@ export default function Home() {
                             </div>
                           </section>
                         </div>
+
+                        {recordHistory.length > 0 && (
+                          <section className="rounded-2xl border border-[#d9e4e1] bg-white p-4 shadow-[0_12px_30px_rgba(20,55,51,0.045)] sm:p-5">
+                            <div className="mb-3 flex items-center justify-between gap-3">
+                              <div>
+                                <h3 className="text-sm font-semibold">
+                                  Care note history
+                                </h3>
+                                <p className="mt-0.5 text-[11px] text-[#7a8a87]">
+                                  Earlier processed notes remain available in
+                                  this session.
+                                </p>
+                              </div>
+                              <span className="rounded-lg bg-[#f0f4f3] px-2.5 py-1.5 text-[10px] font-semibold text-[#60736f]">
+                                {recordEntries.length} notes
+                              </span>
+                            </div>
+                            <div className="grid gap-3 lg:grid-cols-2">
+                              {recordHistory.map((entry) => {
+                                const historyRecord = entry.record;
+                                const historyResident = RESIDENTS.find(
+                                  (resident) =>
+                                    resident.name === historyRecord.resident,
+                                );
+                                const historyIndicators = [
+                                  ...new Set(
+                                    historyRecord.evidence.map(
+                                      (item) => item.indicator,
+                                    ),
+                                  ),
+                                ];
+                                return (
+                                  <button
+                                    type="button"
+                                    key={entry.id}
+                                    onClick={() => {
+                                      setActiveRecordId(entry.id);
+                                      setActiveEvidence(null);
+                                      requestAnimationFrame(() =>
+                                        document
+                                          .getElementById('active-care-record')
+                                          ?.scrollIntoView({
+                                            behavior: 'smooth',
+                                            block: 'start',
+                                          }),
+                                      );
+                                    }}
+                                    className="flex w-full items-center gap-3 rounded-xl border border-[#dfe7e5] bg-[#fbfcfc] p-3 text-left transition hover:border-[#8fb5ad] hover:bg-[#f4f9f7]"
+                                  >
+                                    <Avatar className="size-11">
+                                      {historyResident && (
+                                        <AvatarImage
+                                          src={historyResident.photo}
+                                          alt={`Fictional profile portrait of ${historyRecord.resident}`}
+                                        />
+                                      )}
+                                      <AvatarFallback>
+                                        {historyRecord.resident.slice(0, 2)}
+                                      </AvatarFallback>
+                                    </Avatar>
+                                    <span className="min-w-0 flex-1">
+                                      <span className="flex items-center gap-2">
+                                        <strong className="truncate text-xs font-semibold text-[#263d39]">
+                                          {historyRecord.resident}
+                                        </strong>
+                                        <span className="shrink-0 text-[10px] text-[#7c8d89]">
+                                          {historyRecord.recordedAt}
+                                        </span>
+                                      </span>
+                                      <span className="mt-1 block truncate text-[11px] text-[#6f817d]">
+                                        {historyRecord.room} ·{' '}
+                                        {historyIndicators.join(', ')}
+                                      </span>
+                                    </span>
+                                    <span className="flex shrink-0 items-center gap-1 text-[10px] font-semibold text-[#397769]">
+                                      Expand{' '}
+                                      <ChevronDown className="size-3.5 -rotate-90" />
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </section>
+                        )}
                       </>
                     )}
 
