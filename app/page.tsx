@@ -59,7 +59,6 @@ type QueueItem = {
   mimeType: string;
   duration: number;
   status: 'waiting' | 'processing';
-  remaining: number;
 };
 
 type Resident = {
@@ -203,7 +202,7 @@ export default function Home() {
     if (!next) return;
 
     processingRef.current = true;
-    updateQueueItem(next.id, { status: 'processing', remaining: 10 });
+    updateQueueItem(next.id, { status: 'processing' });
     try {
       const extension = next.mimeType.includes('mp4')
         ? 'm4a'
@@ -217,11 +216,7 @@ export default function Home() {
       body.append('audio', file);
 
       const request = fetch('/api/process', { method: 'POST', body });
-      for (let remaining = 10; remaining > 0; remaining -= 1) {
-        updateQueueItem(next.id, { remaining });
-        await delay(1000);
-      }
-      updateQueueItem(next.id, { remaining: 0 });
+      await delay(5000);
 
       const response = await request;
       const payload = (await response.json()) as {
@@ -258,7 +253,6 @@ export default function Home() {
       mimeType,
       duration,
       status: 'waiting',
-      remaining: 10,
     };
     noteNumberRef.current += 1;
     queueRef.current = [...queueRef.current, item];
@@ -586,7 +580,7 @@ export default function Home() {
                                       className={`shrink-0 rounded-full px-2 py-1 text-[9px] font-bold uppercase tracking-[0.08em] ${processing ? 'bg-[#eff7d8] text-[#567314]' : 'bg-[#f0f3f2] text-[#7b8986]'}`}
                                     >
                                       {processing
-                                        ? `Processing · ${item.remaining}s`
+                                        ? 'Processing'
                                         : 'Not started'}
                                     </span>
                                   </div>
@@ -693,15 +687,9 @@ export default function Home() {
                                 </strong>
                                 Recording
                               </span>
-                              <span>
-                                <strong className="block font-semibold text-[#273c39]">
-                                  {record.conversationType}
-                                </strong>
-                                Conversation
-                              </span>
                             </div>
                           </div>
-                          <div className="grid divide-y divide-[#e1e8e6] md:grid-cols-3 md:divide-x md:divide-y-0">
+                          <div className="grid divide-y divide-[#e1e8e6] md:grid-cols-2 md:divide-x md:divide-y-0">
                             <div className="p-4 sm:p-5">
                               <p className="text-[10px] font-semibold uppercase tracking-[0.13em] text-[#7d8d8a]">
                                 Evidence captured
@@ -728,24 +716,6 @@ export default function Home() {
                                     {indicator}
                                   </span>
                                 ))}
-                              </div>
-                            </div>
-                            <div className="p-4 sm:p-5">
-                              <p className="text-[10px] font-semibold uppercase tracking-[0.13em] text-[#7d8d8a]">
-                                Traceability
-                              </p>
-                              <div className="mt-2 flex items-center gap-2">
-                                <span className="grid size-8 place-items-center rounded-full bg-[#eff7dd] text-[#557313]">
-                                  <ShieldCheck className="size-4" />
-                                </span>
-                                <div>
-                                  <strong className="block text-sm">
-                                    100% sourced
-                                  </strong>
-                                  <span className="text-[11px] text-[#73837f]">
-                                    Every claim linked to speech
-                                  </span>
-                                </div>
                               </div>
                             </div>
                           </div>
