@@ -49,6 +49,7 @@ type CareRecord = {
   recordedAt: string;
   duration: string;
   conversationType: string;
+  noMatchReason?: string | null;
   segments: Segment[];
   evidence: Evidence[];
 };
@@ -813,6 +814,17 @@ export default function Home() {
                               </span>
                             </div>
                             <div className="max-h-[580px] space-y-3 overflow-y-auto p-4 sm:p-5">
+                              {record.evidence.length === 0 && (
+                                <div className="rounded-xl border border-dashed border-[#cbd9d6] bg-[#f8faf9] px-5 py-8 text-center">
+                                  <ShieldCheck className="mx-auto size-6 text-[#6f948d]" />
+                                  <h4 className="mt-3 text-sm font-semibold text-[#29433f]">
+                                    No supported NQI match
+                                  </h4>
+                                  <p className="mx-auto mt-1 max-w-sm text-xs leading-relaxed text-[#71817e]">
+                                    {record.noMatchReason}
+                                  </p>
+                                </div>
+                              )}
                               {record.evidence.map((item) => {
                                 const selected = activeEvidence === item.id;
                                 return (
